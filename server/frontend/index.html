@@ -51,6 +51,10 @@
             <option value="CDS/P/PanSTARRS/DR1/color-z-zg-g">Pan-STARRS DR1 (Optical/NIR)</option>
           </select>
         </label>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+          <button type="button" id="btnHipsAllSky" class="btn-sub" style="font-size: 11px; padding: 3px 8px; cursor: pointer; border-radius: 4px;" title="Zoom out to complete All-Sky sphere (180°)">🌌 Ver All-Sky (180°)</button>
+          <a href="/hips/spherex_dr1/Allsky.png" target="_blank" style="font-size: 11px; color: #5ec8f2; text-decoration: none;" title="Open raw Allsky.png in new tab">🖼️ Allsky.png ↗</a>
+        </div>
         <div class="hips-status mono"><span class="hips-dot"></span> 60 FPS Adaptive Bitrate</div>
       </div>
     </section>
@@ -79,6 +83,7 @@
         <button type="button" data-fov="600" title="10 arcminute field (600″)&#10;Broad celestial context perspective">10′</button>
         <button type="button" data-fov="900" title="15 arcminute field (900″)&#10;Wide-field view equivalent to half a lunar diameter">15′</button>
         <button type="button" data-fov="1800" title="30 arcminute field (1800″)&#10;Maximum field of view: approximate size of the Full Moon">30′</button>
+        <button type="button" data-fov="648000" id="btnPresetAllSky" title="Full All-Sky View (180°)&#10;Complete celestial sphere panorama">🌌 All-Sky</button>
       </div>
     </section>
 
@@ -292,6 +297,6 @@
   </form>
 </dialog>
 <script src="chart.js?v=5"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 </body>
 </html>

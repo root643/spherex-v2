@@ -477,9 +477,17 @@
     if ($("fovPresets")) {
       [...$("fovPresets").children].forEach((b) => {
         b.onclick = () => {
-          state.fov = +b.dataset.fov;
-          paintControls();
-          reload({ zoomOnly: true });
+          const targetFov = +b.dataset.fov;
+          if (targetFov >= 3600) {
+            if (state.viewEngine !== "hips") switchEngine("hips");
+            if (aladinInstance) {
+              aladinInstance.setFoV(targetFov / 3600);
+            }
+          } else {
+            state.fov = Math.min(1800, targetFov);
+            paintControls();
+            reload({ zoomOnly: true });
+          }
         };
       });
     }
@@ -1811,6 +1819,14 @@
     const ra = state.ra, dec = state.dec, fov = state.fov || 300;
     const det = "D" + detOf(state.band);
 
+    if (fov > 1800) {
+      if ($("hipsHudStatus")) {
+        const deg = (fov / 3600).toFixed(0);
+        $("hipsHudStatus").innerHTML = `<span class="hips-dot live"></span> <b>SPHEREx All-Sky View (${deg}°)</b> · Acércate a ≤30′ para cargar épocas multi-época`;
+      }
+      return;
+    }
+
     if ($("hipsHudStatus")) {
       $("hipsHudStatus").innerHTML = `<span class="hips-dot loading"></span> Querying SPHEREx Level-2 epochs (${det})…`;
     }
@@ -1969,10 +1985,17 @@
 
           aladinInstance.on("zoomChanged", (fovDeg) => {
             if (state.viewEngine !== "hips") return;
-            state.fov = Math.max(30, Math.min(1800, Math.round(fovDeg * 3600)));
-            if ($("fovExact")) $("fovExact").value = state.fov;
-            if ($("fov")) $("fov").value = state.fov;
-            if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
+            const fovSec = Math.round(fovDeg * 3600);
+            state.fov = Math.max(30, fovSec);
+            if ($("fovExact")) $("fovExact").value = Math.min(1800, state.fov);
+            if ($("fov")) $("fov").value = Math.min(1800, state.fov);
+            if ($("fovOut")) {
+              if (state.fov >= 3600) {
+                $("fovOut").textContent = `${(state.fov / 3600).toFixed(1)}° (${(state.fov / 60).toFixed(0)}′)`;
+              } else {
+                $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
+              }
+            }
             syncUrl();
             onHipsMotion();
           });
@@ -2057,6 +2080,14 @@
       $("hipsColormap").onchange = () => {
         state.hipsColormap = $("hipsColormap").value;
         if (activeHipsFitsLayer) applyHipsLayerProperties(activeHipsFitsLayer);
+      };
+    }
+    if ($("btnHipsAllSky")) {
+      $("btnHipsAllSky").onclick = () => {
+        if (state.viewEngine !== "hips") switchEngine("hips");
+        if (aladinInstance) {
+          aladinInstance.setFoV(180);
+        }
       };
     }
     if ($("hipsSurvey")) {
