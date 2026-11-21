@@ -6,7 +6,7 @@
 <title>SPHEREx Blink · 102-Band Time-Series Viewer</title>
 <meta name="description" content="WiseView-style viewer for NASA SPHEREx images: multi-epoch blinking, difference, coaddition, and 102-channel spectra.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
 <header class="top">
@@ -44,6 +44,7 @@
       <div id="hipsPanel" class="hips-panel" style="display: none; margin-top: 8px;">
         <label>HiPS Survey
           <select id="hipsSurvey" title="Background sky survey tiles">
+            <option value="/hips/spherex_dr1/" selected>SPHEREx DR1 All-Sky (Native HiPS Order 0–7)</option>
             <option value="CDS/P/allWISE/color">AllWISE Color (Space Infrared 3.4/4.6 µm)</option>
             <option value="CDS/P/2MASS/color">2MASS JHK (Near-Infrared)</option>
             <option value="CDS/P/DSS2/color">DSS2 Color (Optical)</option>
@@ -291,6 +292,6 @@
   </form>
 </dialog>
 <script src="chart.js?v=5"></script>
-<script src="app.js?v=29"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>

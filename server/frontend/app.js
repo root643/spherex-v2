@@ -1898,6 +1898,30 @@
     }
   }
 
+  function setHipsSurvey(surveyIdOrUrl) {
+    if (!aladinInstance) return;
+    const s = surveyIdOrUrl || state.hipsSurvey || "/hips/spherex_dr1/";
+    if (s.startsWith("/") || s.startsWith("http")) {
+      const fullUrl = s.startsWith("http") ? s : (window.location.origin + s);
+      try {
+        const surveyObj = aladinInstance.createImageSurvey(
+          "SPHEREx_DR1",
+          "SPHEREx DR1 All-Sky (3.3 µm, Order 0–7)",
+          fullUrl,
+          "equatorial",
+          7,
+          { imgFormat: "png" }
+        );
+        aladinInstance.setImageSurvey(surveyObj);
+      } catch (err) {
+        console.warn("createImageSurvey fallback:", err);
+        try { aladinInstance.setImageSurvey(fullUrl); } catch {}
+      }
+    } else {
+      try { aladinInstance.setImageSurvey(s); } catch {}
+    }
+  }
+
   function initOrUpdateAladin() {
     ensureAladinScript(() => {
       const aladinDiv = $("aladinDiv");
@@ -1905,8 +1929,9 @@
 
       if (!aladinInstance) {
         try {
+          const initSurvey = (state.hipsSurvey && !state.hipsSurvey.startsWith("/")) ? state.hipsSurvey : "CDS/P/allWISE/color";
           aladinInstance = A.aladin("#aladinDiv", {
-            survey: state.hipsSurvey || "CDS/P/allWISE/color",
+            survey: initSurvey,
             fov: (state.fov || 300) / 3600.0,
             target: `${state.ra} ${state.dec}`,
             cooFrame: "J2000",
@@ -1918,6 +1943,9 @@
             showShareControl: false,
             showFrame: false,
           });
+          if (state.hipsSurvey && state.hipsSurvey.startsWith("/")) {
+            setHipsSurvey(state.hipsSurvey);
+          }
 
           const onHipsMotion = () => {
             if (state.viewEngine !== "hips") return;
@@ -1966,7 +1994,7 @@
         try {
           aladinInstance.gotoPosition(state.ra, state.dec);
           aladinInstance.setFoV((state.fov || 300) / 3600.0);
-          if (state.hipsSurvey) aladinInstance.setImageSurvey(state.hipsSurvey);
+          if (state.hipsSurvey) setHipsSurvey(state.hipsSurvey);
           if (typeof aladinInstance.recalculateView === "function") aladinInstance.recalculateView();
           window.dispatchEvent(new Event("resize"));
           triggerHipsNativeSync();
@@ -2004,7 +2032,7 @@
 
   function setupHipsEngine() {
     state.viewEngine = "blink";
-    state.hipsSurvey = "CDS/P/allWISE/color";
+    state.hipsSurvey = "/hips/spherex_dr1/";
     state.hipsBlinkEnabled = true;
     state.hipsOpacity = 90;
     state.hipsColormap = "native";
@@ -2035,7 +2063,7 @@
       $("hipsSurvey").onchange = () => {
         state.hipsSurvey = $("hipsSurvey").value;
         if (aladinInstance) {
-          try { aladinInstance.setImageSurvey(state.hipsSurvey); } catch {}
+          try { setHipsSurvey(state.hipsSurvey); } catch {}
         }
       };
     }

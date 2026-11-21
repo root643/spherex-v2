@@ -66,12 +66,12 @@ say "Entorno Python en /opt/spherex-env"
 # ---------------------------------------------------------------- 3. codigo
 say "Copiando backend y frontend"
 rm -rf /opt/spherex-backend /var/www/spherex-frontend
-mkdir -p /opt/spherex-backend /var/www/spherex-frontend /var/cache/spherex/fits /var/cache/spherex/zarr /var/cache/nginx/spherex
+mkdir -p /opt/spherex-backend /var/www/spherex-frontend /var/www/spherex-hips /var/cache/spherex/fits /var/cache/spherex/zarr /var/cache/nginx/spherex
 # datos del foro (publicaciones, votos, GIF y espectros): fuera de lo que se borra en cada despliegue
 mkdir -p /var/lib/spherex/forum/media
 cp -r "$SRC/backend/." /opt/spherex-backend/
 cp -r "$SRC/frontend/." /var/www/spherex-frontend/
-chown -R "$RUN_USER":"$RUN_USER" /opt/spherex-backend /var/cache/spherex /var/lib/spherex
+chown -R "$RUN_USER":"$RUN_USER" /opt/spherex-backend /var/cache/spherex /var/lib/spherex /var/www/spherex-hips
 chown -R www-data:www-data /var/cache/nginx/spherex
 chmod -R a+rX /var/www/spherex-frontend
 

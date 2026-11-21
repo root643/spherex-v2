@@ -28,6 +28,7 @@ import imaging
 import targets
 import upstream
 import zarr_store
+import hips_store
 from cache import Cache, pack, unpack
 
 VERSION = "2.0.0"
@@ -503,7 +504,8 @@ def zarr_cube_build(ra: float = RA, dec: float = DEC, fov: float = FOV,
 def hips_surveys():
     """Listado de teselados HiPS disponibles para navegacion de todo el firmamento a 60 FPS."""
     surveys = [
-        {"id": "CDS/P/allWISE/color", "name": "AllWISE Color (Infrared)", "band": "Infrared (3.4 / 4.6 µm)", "default": True},
+        {"id": "/hips/spherex_dr1/", "name": "SPHEREx DR1 All-Sky (Native HiPS Order 0–7)", "band": "Mid-IR (3.3 µm)", "default": True},
+        {"id": "CDS/P/allWISE/color", "name": "AllWISE Color (Infrared)", "band": "Infrared (3.4 / 4.6 µm)", "default": False},
         {"id": "CDS/P/2MASS/color", "name": "2MASS JHK (Near-IR)", "band": "Near-IR (1.25 - 2.16 µm)", "default": False},
         {"id": "CDS/P/DSS2/color", "name": "DSS2 Color (Optical)", "band": "Optical", "default": False},
         {"id": "CDS/P/PanSTARRS/DR1/color-z-zg-g", "name": "Pan-STARRS DR1", "band": "Optical/NIR", "default": False},
@@ -811,6 +813,45 @@ def source_test(ra: float = RA, dec: float = DEC, n: int = Query(3, ge=1, le=8),
             item["irsa_seconds"] = round(time.time() - t0, 3)
         out.append(item)
     return JSONResponse({"mode": upstream.SOURCE, "results": out}, headers={"Cache-Control": "no-store"})
+
+
+# --------------------------------------------------------------------------- Encuestas HiPS
+@app.get("/hips/spherex_dr1/properties")
+def hips_properties():
+    props = hips_store.ensure_properties()
+    return Response(props, media_type="text/plain; charset=utf-8",
+                    headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/hips/spherex_dr1/Allsky.png")
+def hips_allsky():
+    data = hips_store.get_allsky_png()
+    return Response(data, media_type="image/png",
+                    headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/hips/spherex_dr1/Norder{order}/Dir{dir}/Npix{pix}.png")
+def hips_tile(order: int, dir: int, pix: int):
+    if order < 0 or order > 7:
+        raise HTTPException(404, "HiPS order out of range (0-7)")
+    data = hips_store.get_tile_png(order, pix)
+    return Response(data, media_type="image/png",
+                    headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/api/v1/hips/status")
+def hips_status():
+    st = None
+    if cache._r is not None:
+        try:
+            raw = cache._r.get("stat:hips:builder")
+            if raw:
+                st = json.loads(raw)
+        except Exception:
+            pass
+    if not st:
+        st = {"status": "ready", "max_order": 7, "survey": "spherex_dr1"}
+    return JSONResponse(st, headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/v1/cache/stats")
