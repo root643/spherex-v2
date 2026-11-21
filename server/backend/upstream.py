@@ -442,18 +442,29 @@ def s3_cutout(uri: str, ra: float, dec: float, size_deg: float, need_var: bool =
     cards = {k: s3fits.parse_cards(exts[k]["text"]) for k in ("IMAGE", "FLAGS", "ZODI", "VARIANCE") if k in exts}
     if "IMAGE" not in cards:
         raise S3Unavailable("el fichero no tiene HDU IMAGE")
-    # IMAGE, ZODI y VARIANCE van sin comprimir (se leen por filas); FLAGS viene
-    # comprimido por tiles (CompImageHDU) y se trae entero, que pesa poco.
-    flags_packed = "FLAGS" in cards and not s3fits.is_plain_image(cards["FLAGS"])
-    for k in ("IMAGE", "ZODI", "VARIANCE"):
-        if k in cards and not s3fits.is_plain_image(cards[k]):
-            raise S3Unavailable(f"el HDU {k} esta comprimido o no es 2D")
-    n1, n2 = int(cards["IMAGE"]["NAXIS1"]), int(cards["IMAGE"]["NAXIS2"])
+    # Compatibilidad universal con FITS: soporte tanto de imagenes planas (filas contiguas)
+    # como comprimidas por teselas (fpack / CompImageHDU) por rangos de bytes directos a S3.
+    for k in ("IMAGE", "ZODI", "VARIANCE", "FLAGS"):
+        if k in cards and not (s3fits.is_plain_image(cards[k]) or s3fits.is_compressed_image(cards[k])):
+            raise S3Unavailable(f"el HDU {k} no tiene un formato de imagen 2D ni fpack soportado")
+
+    img_cards = cards["IMAGE"]
+    if s3fits.is_plain_image(img_cards):
+        n1, n2 = int(img_cards["NAXIS1"]), int(img_cards["NAXIS2"])
+    else:
+        n1 = int(img_cards.get("ZNAXIS1", img_cards.get("NAXIS1", 2048)))
+        n2 = int(img_cards.get("ZNAXIS2", img_cards.get("NAXIS2", 2048)))
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", FITSFixedWarning)
         warnings.simplefilter("ignore", RuntimeWarning)
         hdr0 = fits.Header.fromstring(exts["IMAGE"]["text"])
+        if hdr0.get("ZIMAGE") is True:
+            hdr0["XTENSION"] = "IMAGE"
+            hdr0["NAXIS"] = int(hdr0.get("ZNAXIS", 2))
+            hdr0["NAXIS1"] = n1
+            hdr0["NAXIS2"] = n2
+            hdr0["BITPIX"] = int(hdr0.get("ZBITPIX", -32))
         wcs0 = WCS(hdr0)
         x, y = wcs0.world_to_pixel(SkyCoord(ra, dec, unit="deg"))
         x, y = float(x), float(y)
@@ -475,19 +486,28 @@ def s3_cutout(uri: str, ra: float, dec: float, size_deg: float, need_var: bool =
         def get(a: int, b: int) -> bytes:
             return _s3_range(url, a, b)
 
-        want = ["IMAGE", "ZODI"] + ([] if flags_packed else ["FLAGS"]) + (["VARIANCE"] if need_var else [])
-        futs = {k: _range_pool.submit(s3fits.rows, get, exts[k], y0, y1, cards[k]) for k in want if k in cards}
-        wave_fut = _range_pool.submit(_hdu_file_bytes, url, lay, "WCS-WAVE", "wave")
-        flags_fut = _range_pool.submit(_hdu_file_bytes, url, lay, "FLAGS", "flags") if flags_packed else None
-        part = {k: f.result()[:, x0:x1] for k, f in futs.items()}
-        if flags_fut is not None:
-            with fits.open(io.BytesIO(flags_fut.result()), memmap=False) as fhdul:
-                fhdu = fhdul[1]
+        def _fetch_part(k: str):
+            c = cards[k]
+            if s3fits.is_plain_image(c):
+                return s3fits.rows(get, exts[k], y0, y1, c)[:, x0:x1]
+            elif s3fits.is_compressed_image(c):
+                # Soporte de teselas fpack mediante Range Requests selectivos
                 try:
-                    fl = fhdu.section[y0:y1, x0:x1]      # solo descomprime los tiles necesarios
+                    return s3fits.read_compressed_section(get, exts[k], y0, y1, x0, x1, c)
                 except Exception:
-                    fl = fhdu.data[y0:y1, x0:x1]
-                part["FLAGS"] = np.array(fl)
+                    # En caso de contingencia con FLAGS, se puede leer del HDU en disco
+                    if k == "FLAGS":
+                        fb = _hdu_file_bytes(url, lay, "FLAGS", "flags")
+                        if fb is not None:
+                            with fits.open(io.BytesIO(fb), memmap=False) as fhdul:
+                                return np.array(fhdul[1].section[y0:y1, x0:x1])
+                    raise
+            raise S3Unavailable(f"Formato no soportado para HDU {k}")
+
+        want = ["IMAGE", "ZODI"] + (["FLAGS"] if "FLAGS" in cards else []) + (["VARIANCE"] if need_var and "VARIANCE" in cards else [])
+        futs = {k: _range_pool.submit(_fetch_part, k) for k in want if k in cards}
+        wave_fut = _range_pool.submit(_hdu_file_bytes, url, lay, "WCS-WAVE", "wave")
+        part = {k: f.result() for k, f in futs.items()}
 
         image = part["IMAGE"].astype(np.float32)
         var = part["VARIANCE"].astype(np.float32) if "VARIANCE" in part else None

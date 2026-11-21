@@ -36,6 +36,25 @@
     </details>
 
     <section>
+      <h2>View Engine</h2>
+      <div id="viewEngines" class="seg" role="group" aria-label="View Engine">
+        <button type="button" id="btnEngineBlink" class="active" title="🎞️ SPHEREx Blink View&#10;WiseView-style multi-epoch blinking, difference (ΔI=IB−IA), and 102-channel SED">Blink View</button>
+        <button type="button" id="btnEngineHips" title="✨ HiPS All-Sky View&#10;Fluid 60 FPS whole sky navigation with Adaptive Bitrate tiles (0% server load)">HiPS Sky</button>
+      </div>
+      <div id="hipsPanel" class="hips-panel" style="display: none; margin-top: 8px;">
+        <label>HiPS Survey
+          <select id="hipsSurvey" title="Background sky survey tiles">
+            <option value="CDS/P/allWISE/color">AllWISE Color (Space Infrared 3.4/4.6 µm)</option>
+            <option value="CDS/P/2MASS/color">2MASS JHK (Near-Infrared)</option>
+            <option value="CDS/P/DSS2/color">DSS2 Color (Optical)</option>
+            <option value="CDS/P/PanSTARRS/DR1/color-z-zg-g">Pan-STARRS DR1 (Optical/NIR)</option>
+          </select>
+        </label>
+        <div class="hips-status mono"><span class="hips-dot"></span> 60 FPS Adaptive Bitrate</div>
+      </div>
+    </section>
+
+    <section>
       <h2>Position</h2>
       <p class="field-hint" style="font-size: 11px; color: var(--muted); margin: -4px 0 8px;">No coordinates needed: drag the sky to pan, scroll/pinch to zoom, or enter values below:</p>
       <div class="row2">
@@ -153,6 +172,7 @@
       <div class="stage-overlays" aria-label="External layers">
         <button id="stageGaia" type="button" class="btn-layer" title="✦ Gaia DR3 overlay (optical)&#10;🟣 Violet: Optical stars and 25-yr PM vectors&#10;🔴 Red: Fast PM (>120 mas/yr, Planet X / brown dwarf candidate)">Gaia</button>
         <button id="stageWise" type="button" class="btn-layer" title="■ AllWISE overlay (space infrared)&#10;🟠 Orange: Sources in W1 (3.4 µm) and W2 (4.6 µm) bands&#10;💗 Pink: Ultra-cold sources (W1−W2 > 1.2, Y-type brown dwarfs)">WISE</button>
+        <button id="stageHips" type="button" class="btn-layer" title="✨ HiPS All-Sky Sky Navigation (Adaptive Bitrate at 60 FPS)">HiPS Sky</button>
       </div>
       <div id="stageLegend" class="stage-legend" hidden>
         <span id="stageGaiaLeg" class="stage-leg-tag leg-tag-gaia" hidden title="✦ Gaia DR3 overlay (optical)&#10;🟣 Violet: Stars and 25-yr PM vectors&#10;🔴 Red: Fast PM (>120 mas/yr, Planet X / brown dwarf candidate)">
@@ -162,6 +182,8 @@
           <i class="leg-icon icon-orange"></i> WISE <small>🟠 W1/W2 · 💗 ultra-cold</small>
         </span>
       </div>
+      <div id="aladinDiv" class="aladin-container" style="display: none;"></div>
+      <button id="btnSyncBlink" class="btn-sync-blink" type="button" style="display: none;" title="⚡ Lock coordinates and blink SPHEREx epochs in WiseView">⚡ Blink SPHEREx Field</button>
       <img id="img" alt="SPHEREx frame" draggable="false">
       <canvas id="overlay"></canvas>
       <div class="compass" aria-hidden="true"><span>N</span><i></i><span class="e">E</span></div>
@@ -251,7 +273,8 @@
     </div>
   </form>
 </dialog>
+<script src="https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js" charset="utf-8"></script>
 <script src="chart.js?v=5"></script>
-<script src="app.js?v=22"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>

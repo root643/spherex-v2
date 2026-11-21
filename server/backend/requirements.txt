@@ -7,3 +7,5 @@ astropy
 reproject
 pillow
 requests
+zarr
+numcodecs

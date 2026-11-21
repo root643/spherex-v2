@@ -1670,6 +1670,113 @@
   }
 
   // ------------------------------------------------------------------ tooltips universales en hover
+  // ------------------------------------------------------------------ HiPS & Aladin Lite engine
+  let aladinInstance = null;
+  function initOrUpdateAladin() {
+    if (typeof A === "undefined") {
+      setMsg("HiPS all-sky navigation requires an active internet connection to load CDS Aladin Lite.");
+      return;
+    }
+    const aladinDiv = $("aladinDiv");
+    if (!aladinDiv) return;
+
+    if (!aladinInstance) {
+      try {
+        aladinInstance = A.aladin("#aladinDiv", {
+          survey: state.hipsSurvey || "CDS/P/allWISE/color",
+          fov: (state.fov || 300) / 3600.0,
+          target: `${state.ra} ${state.dec}`,
+          cooFrame: "J2000",
+          showReticle: state.cross,
+          showZoomControl: false,
+          showFullscreenControl: false,
+          showLayersControl: false,
+          showGotoControl: false,
+          showShareControl: false,
+          showFrame: false,
+        });
+
+        aladinInstance.on("positionChanged", (data) => {
+          if (state.viewEngine !== "hips") return;
+          state.ra = Number(data.ra.toFixed(5));
+          state.dec = Number(data.dec.toFixed(5));
+          if ($("ra")) $("ra").value = state.ra;
+          if ($("dec")) $("dec").value = state.dec;
+          if ($("cursor")) $("cursor").textContent = `${state.ra.toFixed(5)}°  ${state.dec >= 0 ? "+" : ""}${state.dec.toFixed(5)}°`;
+          syncUrl();
+        });
+
+        aladinInstance.on("zoomChanged", (fovDeg) => {
+          if (state.viewEngine !== "hips") return;
+          state.fov = Math.max(30, Math.min(1800, Math.round(fovDeg * 3600)));
+          if ($("fovExact")) $("fovExact").value = state.fov;
+          if ($("fov")) $("fov").value = state.fov;
+          if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
+          syncUrl();
+        });
+
+        aladinInstance.on("objectClicked", (obj) => {
+          if (obj && obj.ra != null && obj.dec != null) {
+            state.ra = Number(obj.ra.toFixed(5));
+            state.dec = Number(obj.dec.toFixed(5));
+            marker = { ra: state.ra, dec: state.dec };
+            loadSpectrum(state.ra, state.dec);
+          }
+        });
+      } catch (err) {
+        console.warn("Error initializing Aladin Lite:", err);
+      }
+    } else {
+      try {
+        aladinInstance.gotoPosition(state.ra, state.dec);
+        aladinInstance.setFoV((state.fov || 300) / 3600.0);
+        if (state.hipsSurvey) aladinInstance.setImageSurvey(state.hipsSurvey);
+      } catch (e) {}
+    }
+  }
+
+  function switchEngine(engine) {
+    state.viewEngine = engine;
+    const isHips = engine === "hips";
+
+    if ($("btnEngineBlink")) $("btnEngineBlink").classList.toggle("active", !isHips);
+    if ($("btnEngineHips")) $("btnEngineHips").classList.toggle("active", isHips);
+    if ($("stageHips")) $("stageHips").classList.toggle("active-hips", isHips);
+    if ($("hipsPanel")) $("hipsPanel").style.display = isHips ? "block" : "none";
+    if ($("aladinDiv")) $("aladinDiv").style.display = isHips ? "block" : "none";
+    if ($("btnSyncBlink")) $("btnSyncBlink").style.display = isHips ? "inline-flex" : "none";
+
+    const img = $("img");
+    const overlay = $("overlay");
+    if (img) img.style.display = isHips ? "none" : "block";
+    if (overlay) overlay.style.display = isHips ? "none" : "block";
+
+    if (isHips) {
+      pause();
+      initOrUpdateAladin();
+    } else {
+      reload();
+    }
+  }
+
+  function setupHipsEngine() {
+    state.viewEngine = "blink";
+    state.hipsSurvey = "CDS/P/allWISE/color";
+
+    if ($("btnEngineBlink")) $("btnEngineBlink").onclick = () => switchEngine("blink");
+    if ($("btnEngineHips")) $("btnEngineHips").onclick = () => switchEngine("hips");
+    if ($("stageHips")) $("stageHips").onclick = () => switchEngine(state.viewEngine === "hips" ? "blink" : "hips");
+    if ($("btnSyncBlink")) $("btnSyncBlink").onclick = () => { switchEngine("blink"); };
+    if ($("hipsSurvey")) {
+      $("hipsSurvey").onchange = () => {
+        state.hipsSurvey = $("hipsSurvey").value;
+        if (aladinInstance) {
+          try { aladinInstance.setImageSurvey(state.hipsSurvey); } catch {}
+        }
+      };
+    }
+  }
+
   function setupTooltips() {
     let tipEl = $("uiTooltip");
     if (!tipEl) {
@@ -1767,6 +1874,7 @@
   buildControls(); paintControls();
   if (state.ra == null) { Object.assign(state, { ra: TARGETS[0].ra, dec: TARGETS[0].dec, fov: TARGETS[0].fov, band: TARGETS[0].band }); }
   setupPublish();
+  setupHipsEngine();
   setupTooltips();
   // secciones plegables: se recuerda si cada una estaba abierta o cerrada
   // la seccion "image" se mantiene cerrada de forma automatica al cargar

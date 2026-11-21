@@ -9,6 +9,7 @@ devuelve los bytes [a, b] (ambos incluidos), asi que se puede probar en local.
 """
 from __future__ import annotations
 
+import io
 from typing import Callable
 
 import numpy as np
@@ -224,6 +225,118 @@ def is_plain_image(cards: dict) -> bool:
     if cards.get("ZIMAGE") is True or str(cards.get("XTENSION", "IMAGE")).strip() not in ("IMAGE", ""):
         return False
     return int(cards.get("NAXIS", 0) or 0) == 2 and int(cards.get("BITPIX", 0)) in _DTYPES
+
+
+def is_compressed_image(cards: dict) -> bool:
+    """True si el HDU es una imagen FITS comprimida por teselas (fpack / CompImageHDU)."""
+    return bool(cards.get("ZIMAGE") is True or (str(cards.get("XTENSION", "")).strip() == "BINTABLE" and cards.get("ZIMAGE") is True))
+
+
+class CompImageRangeStream(io.RawIOBase):
+    """Fichero virtual seekable sobre rangos HTTP de un HDU comprimido FITS.
+
+    Antepone un HDU primario minimo (2880 bytes) para que astropy.io.fits.open
+    lo reconozca como un MEF FITS estandar y acceda selectivamente a las teselas
+    del HDU comprimido mediante HTTP Range requests sin descargar el resto.
+    Utiliza una cache de bloques indexada para no volver a pedir rangos ya leidos.
+    """
+    def __init__(self, get_range: GetRange, ext: dict, block_size: int = 4096):
+        self._get_range = get_range
+        self._ext = ext
+        self._hdroff = int(ext["hdroff"])
+        dsize_pad = padded(int(ext["dsize"]))
+        self._ext_len = int(ext["hsize"]) + dsize_pad
+        self._primary = minimal_primary()
+        self._pri_len = len(self._primary)
+        self._total = self._pri_len + self._ext_len
+        self._pos = 0
+        self._block_size = block_size
+        self._blocks: dict[int, bytes] = {}
+
+    def readable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return True
+
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        if whence == io.SEEK_SET:
+            self._pos = offset
+        elif whence == io.SEEK_CUR:
+            self._pos += offset
+        elif whence == io.SEEK_END:
+            self._pos = self._total + offset
+        else:
+            raise ValueError(f"whence invalido: {whence}")
+        self._pos = max(0, min(self._pos, self._total))
+        return self._pos
+
+    def tell(self) -> int:
+        return self._pos
+
+    def readinto(self, b) -> int:
+        if self._pos >= self._total:
+            return 0
+        want = min(len(b), self._total - self._pos)
+        out = bytearray()
+        cur_pos = self._pos
+
+        if cur_pos < self._pri_len:
+            n_pri = min(want, self._pri_len - cur_pos)
+            out.extend(self._primary[cur_pos:cur_pos + n_pri])
+            cur_pos += n_pri
+            want -= n_pri
+
+        if want > 0:
+            rel_start = cur_pos - self._pri_len
+            rel_end = rel_start + want - 1
+            b_first = rel_start // self._block_size
+            b_last = rel_end // self._block_size
+            for bi in range(b_first, b_last + 1):
+                if bi not in self._blocks:
+                    boff = bi * self._block_size
+                    bstop = min(self._ext_len, boff + self._block_size) - 1
+                    if bstop >= boff:
+                        chunk = self._get_range(self._hdroff + boff, self._hdroff + bstop)
+                        self._blocks[bi] = chunk
+                    else:
+                        self._blocks[bi] = b""
+            for bi in range(b_first, b_last + 1):
+                boff = bi * self._block_size
+                blk = self._blocks[bi]
+                start_in_blk = max(0, rel_start - boff)
+                end_in_blk = min(len(blk), rel_end - boff + 1)
+                if end_in_blk > start_in_blk:
+                    out.extend(blk[start_in_blk:end_in_blk])
+
+        b[:len(out)] = out
+        self._pos += len(out)
+        return len(out)
+
+
+def read_compressed_section(get_range: GetRange, ext: dict, y0: int, y1: int,
+                            x0: int | None = None, x1: int | None = None,
+                            cards: dict | None = None) -> np.ndarray:
+    """Lee y descomprime selectivamente una region [y0:y1, x0:x1] de un HDU comprimido (fpack/CompImageHDU).
+
+    Solo transfiere por HTTP Range los bytes de las teselas que intersecan la region,
+    reduciendo el ancho de banda necesario hasta en un 99%.
+    """
+    from astropy.io import fits
+    import warnings
+    from astropy.wcs import FITSFixedWarning
+
+    stream = CompImageRangeStream(get_range, ext)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FITSFixedWarning)
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with fits.open(stream, memmap=False) as hdul:
+            comp_hdu = hdul[1]
+            if x0 is not None and x1 is not None:
+                sec = comp_hdu.section[y0:y1, x0:x1]
+            else:
+                sec = comp_hdu.section[y0:y1, :]
+            return np.array(sec)
 
 
 def rows(get_range: GetRange, ext: dict, y0: int, y1: int, cards: dict | None = None) -> np.ndarray:

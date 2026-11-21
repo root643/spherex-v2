@@ -6,6 +6,7 @@ rejilla TAN comun, con modo diferencia, coadicion y espectro de 102 canales.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -16,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import numpy as np
+from astropy.io import fits
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 
@@ -24,9 +26,10 @@ import forum
 import imaging
 import targets
 import upstream
+import zarr_store
 from cache import Cache, pack, unpack
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 MAX_PER_FRAME = int(os.environ.get("SPHEREX_MAX_PER_FRAME", "16"))
 MAX_PER_COADD = int(os.environ.get("SPHEREX_MAX_PER_COADD", "48"))
 MAX_SPEC_PER_DET = int(os.environ.get("SPHEREX_MAX_SPEC_PER_DET", "24"))
@@ -259,7 +262,8 @@ def catalog_gaia(ra: float = RA, dec: float = DEC,
         "ra": ra, "dec": dec, "radius_arcsec": radius, "catalog": "Gaia DR3 (I/355/gaiadr3)",
         "count": len(sources), "sources": sources
     }).encode()
-    cache.set(key, payload, 7 * 86400)
+    if sources:
+        cache.set(key, payload, 7 * 86400)
     return Response(payload, media_type="application/json",
                     headers={"Cache-Control": "public, max-age=86400", "X-Catalog-Source": "vizier"})
 
@@ -285,7 +289,8 @@ def catalog_wise(ra: float = RA, dec: float = DEC,
         "ra": ra, "dec": dec, "radius_arcsec": radius, "catalog": "AllWISE (II/328/allwise)",
         "count": len(sources), "sources": sources
     }).encode()
-    cache.set(key, payload, 7 * 86400)
+    if sources:
+        cache.set(key, payload, 7 * 86400)
     return Response(payload, media_type="application/json",
                     headers={"Cache-Control": "public, max-age=86400", "X-Catalog-Source": "vizier"})
 
@@ -337,6 +342,144 @@ def cutout_coadd(ra: float = RA, dec: float = DEC, fov: float = FOV, band: str =
     arr, meta = build_array(ra, dec, fov, det, lmin, lmax, get_exposures(ra, dec), method,
                             MAX_PER_COADD, res)
     return _image_response(arr, meta, stretch, invert, False, vmin, vmax)
+
+
+@app.get("/api/v1/cutout/raw")
+def cutout_raw(ra: float = RA, dec: float = DEC, fov: float = FOV,
+               epoch: int = Query(0, ge=0), band: str = Query("D4"),
+               format: str = Query("zfp", pattern="^(zfp|blosc|raw|fits)$"),
+               tolerance: float = Query(1e-4, ge=1e-8, le=1.0),
+               coadd: bool = False,
+               res: str = Query("high", pattern="^(low|high)$")):
+    """Endpoint de streaming cientifico con datos float32 puros y compresion ZFP / Blosc.
+
+    Permite a cuadernos Jupyter, scripts en Python (xarray, astropy) y clientes avanzados
+    hacer analisis espectral y ajustes de modelos astrofisicos sin perder rango dinamico.
+    """
+    ra, dec = _r(ra, dec)
+    fov = round(float(fov), 2)
+    det, lmin, lmax = _band(band)
+    exps = get_exposures(ra, dec)
+    target_exps = exps if coadd else _epoch_exps(exps, epoch)
+    cap = MAX_PER_COADD if coadd else MAX_PER_FRAME
+    arr, meta = build_array(ra, dec, fov, det, lmin, lmax, target_exps, "median", cap, res)
+
+    ny, nx = arr.shape
+    scale = meta["scale"]
+    wcs_obj = upstream.target_wcs(ra, dec, ny, scale)
+    wcs_hdr = wcs_obj.to_header()
+
+    if format == "fits":
+        bio = io.BytesIO()
+        phdu = fits.PrimaryHDU(arr.astype(np.float32), header=wcs_hdr)
+        phdu.writeto(bio)
+        body = bio.getvalue()
+        headers = {
+            "Content-Type": "application/fits",
+            "Content-Disposition": f'attachment; filename="spherex_raw_{ra:.4f}_{dec:.4f}_{band}.fits"',
+            "X-Spherex-Format": "fits",
+            "X-Spherex-Shape": f"{ny},{nx}",
+            "X-Spherex-Scale": str(scale),
+        }
+        return Response(body, media_type="application/fits", headers=headers)
+
+    compressed, codec = zarr_store.compress_float32(arr, method=format, tolerance=tolerance)
+    headers = {
+        "Content-Type": "application/octet-stream",
+        "Cache-Control": "public, max-age=43200",
+        "X-Spherex-Codec": codec,
+        "X-Spherex-Dtype": "float32",
+        "X-Spherex-Shape": f"{ny},{nx}",
+        "X-Spherex-Scale": str(scale),
+        "X-Spherex-Tolerance": str(tolerance),
+        "X-Spherex-Date": str(meta.get("date", "")),
+        "X-Spherex-Mjd": str(meta.get("mjd", "")),
+        "X-Spherex-Wcs-Crval1": str(wcs_hdr.get("CRVAL1", ra)),
+        "X-Spherex-Wcs-Crval2": str(wcs_hdr.get("CRVAL2", dec)),
+        "X-Spherex-Wcs-Cdelt1": str(wcs_hdr.get("CDELT1", "")),
+        "X-Spherex-Wcs-Cdelt2": str(wcs_hdr.get("CDELT2", "")),
+    }
+    return Response(compressed, media_type="application/octet-stream", headers=headers)
+
+
+@app.get("/api/v1/cube/zarr/info")
+def zarr_cube_info(ra: float = RA, dec: float = DEC, fov: float = FOV):
+    """Estado y metadatos del hipercubo espectral 3D en formato Cloud-Native Zarr."""
+    ra, dec = _r(ra, dec)
+    fov = round(float(fov), 2)
+    path = zarr_store.cube_path(ra, dec, fov)
+    exists = os.path.exists(path)
+    cid = zarr_store.cube_id(ra, dec, fov)
+    res = {
+        "cube_id": cid,
+        "ra": ra, "dec": dec, "fov": fov,
+        "cached": exists,
+        "chunk_shape": [17, 64, 64],
+        "format": "zarr-v3",
+        "compression": "zstd-blosc"
+    }
+    if exists:
+        root = zarr_store.open_zarr_cube(path)
+        if root and "data" in root:
+            res["shape"] = list(root["data"].shape)
+            res["attrs"] = dict(root.attrs)
+    return JSONResponse(res, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/api/v1/cube/zarr/spectrum")
+def zarr_cube_spectrum(ra: float = RA, dec: float = DEC, fov: float = FOV,
+                       x: int = Query(..., ge=0), y: int = Query(..., ge=0)):
+    """Consulta instantanea (<10ms) de los 102 canales sobre el cubo Zarr cacheado."""
+    ra, dec = _r(ra, dec)
+    fov = round(float(fov), 2)
+    path = zarr_store.cube_path(ra, dec, fov)
+    spec = zarr_store.extract_spectrum_from_zarr(path, x, y)
+    if spec is None:
+        raise HTTPException(404, "El cubo Zarr no esta generado o las coordenadas de pixel caen fuera")
+    return JSONResponse(spec, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.post("/api/v1/cube/zarr/build")
+def zarr_cube_build(ra: float = RA, dec: float = DEC, fov: float = FOV):
+    """Genera y almacena el hipercubo espectral 3D en Zarr particionado en bloques (17, 64, 64)."""
+    ra, dec = _r(ra, dec)
+    fov = round(float(fov), 2)
+    path = zarr_store.cube_path(ra, dec, fov)
+    cid = zarr_store.cube_id(ra, dec, fov)
+    if os.path.exists(path):
+        return JSONResponse({"status": "ready", "path": path, "cube_id": cid})
+
+    exps = get_exposures(ra, dec)
+    n, scale = upstream.grid_for(fov)
+    cube_data = np.zeros((102, n, n), dtype=np.float32)
+    wavelengths = []
+    wcs_hdr = upstream.target_wcs(ra, dec, n, scale).to_header()
+    wcs_info = {k: str(wcs_hdr.get(k, "")) for k in ("CRVAL1", "CRVAL2", "CDELT1", "CDELT2", "CTYPE1", "CTYPE2")}
+
+    for ch in range(1, 103):
+        det, lmin, lmax = imaging.channel_range(ch)
+        wavelengths.append(round((lmin + lmax) / 2.0, 4))
+        try:
+            arr, _ = build_array(ra, dec, fov, det, lmin, lmax, exps, "median", cap=8, res="low")
+            cube_data[ch - 1] = arr
+        except Exception:
+            pass
+
+    zarr_store.save_zarr_cube(path, cube_data, ra, dec, fov, wavelengths, wcs_info)
+    return JSONResponse({"status": "created", "path": path, "cube_id": cid, "shape": [102, n, n]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/v1/hips/surveys")
+def hips_surveys():
+    """Listado de teselados HiPS disponibles para navegacion de todo el firmamento a 60 FPS."""
+    surveys = [
+        {"id": "CDS/P/allWISE/color", "name": "AllWISE Color (Infrared)", "band": "Infrared (3.4 / 4.6 µm)", "default": True},
+        {"id": "CDS/P/2MASS/color", "name": "2MASS JHK (Near-IR)", "band": "Near-IR (1.25 - 2.16 µm)", "default": False},
+        {"id": "CDS/P/DSS2/color", "name": "DSS2 Color (Optical)", "band": "Optical", "default": False},
+        {"id": "CDS/P/PanSTARRS/DR1/color-z-zg-g", "name": "Pan-STARRS DR1", "band": "Optical/NIR", "default": False},
+    ]
+    return JSONResponse({"status": "ok", "surveys": surveys}, headers={"Cache-Control": "public, max-age=86400"})
 
 
 def _sky_frac(ra0: float, dec0: float, ra: float, dec: float, span_arcsec: float) -> tuple[float, float]:

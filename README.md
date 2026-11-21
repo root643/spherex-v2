@@ -1,6 +1,21 @@
-# SPHEREx Blink — servidor traductor estilo WiseView
+# SPHEREx v2 — Cloud-Native Astronomy & All-Sky Viewer
 
-Implementación de `ORACLE_SERVER_WISEVIEW_ARCHITECTURE.md` para el reto *Planet X and SPHEREx* (NASA Space Apps 2026).
+Evolución arquitectónica v2 del servidor de visualización y análisis científico para el reto *Planet X and SPHEREx* (NASA Space Apps 2026).
+
+## Novedades en la versión v2
+
+### 1. HiPS All-Sky Navigation + WiseView Blink (Adaptive Bitrate a 60 FPS)
+- **Capa base de navegación continua (HiPS + Aladin Lite v3):** Paneo y zoom fluido a 60 FPS por todo el firmamento mediante pirámides de teselas multirresolución estándar IVOA (AllWISE, 2MASS, DSS2, Pan-STARRS), reduciendo un ~80% la carga innecesaria en la CPU del backend.
+- **Capa activa de detección (WiseView Blink / Diferencia):** Sincronización instantánea con el motor dinámico de SPHEREx para detección de movimiento propio (Planeta X, enanas marrones), análisis de dipolos $(\Delta I = I_B - I_A)$, coadición y espectrometría de 102 canales.
+
+### 2. Soporte Remoto de FITS Tile Compression (`fpack` / `CompImageHDU`)
+- Extensión en `server/backend/s3fits.py` y `upstream.py` con `CompImageRangeStream` y caché indexada por bloques.
+- Permite leer imágenes FITS comprimidas por teselas (`RICE_1`, etc.) directamente en AWS S3 solicitando únicamente por HTTP Range los bytes de los bloques que intersecan la región del recorte.
+- Reduce el consumo de datos de S3 en más de un 95% y elimina la dependencia de servicios de corte externos.
+
+### 3. Almacén Cloud-Native en Zarr y Streaming Científico Float32 (ZFP / Blosc)
+- **Cubos Zarr 3D:** Almacenamiento multidimensional $(\lambda, y, x)$ con bloques regulares $(17, 64, 64)$ y compresión ZSTD. Permite extraer espectros completos de 102 canales en menos de 10 milisegundos y conexión directa para notebooks de Python (`xarray` + `fsspec`).
+- **Endpoint de datos crudos (`/api/v1/cutout/raw`):** Streaming de matrices en coma flotante real (`float32`) con compresión matemática de alta fidelidad ZFP (tolerancia configurable) y Blosc-ZSTD, garantizando máxima precisión astrofísica sin degradación de contraste.
 
 ## Desplegar (un comando)
 

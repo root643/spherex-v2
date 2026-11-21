@@ -9,3 +9,6 @@ __pycache__/
 *.pyc
 .venv/
 Nuevo Documento de texto.txt
+*.png
+/*.html
+/NASA Space Apps Challenge_files/

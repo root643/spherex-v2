@@ -213,6 +213,44 @@ def test_walk_fast():
     assert s3fits.walk_fast(Many(a), bad) is None
 
 
+def test_fits_tile_compression_remote():
+    """Prueba el soporte de FITS Tile Compression remoto (fpack / CompImageHDU) en s3fits."""
+    import io
+    from astropy.io import fits
+
+    nx, ny = 128, 128
+    data = np.arange(ny * nx, dtype=np.float32).reshape(ny, nx)
+    hdr = fits.Header()
+    hdr["EXTNAME"] = "COMP_IMAGE"
+    comp_hdu = fits.CompImageHDU(data, header=hdr, compression_type="RICE_1", tile_shape=(32, 32))
+    hdul = fits.HDUList([fits.PrimaryHDU(), comp_hdu])
+    bio = io.BytesIO()
+    hdul.writeto(bio)
+    raw = bio.getvalue()
+
+    remote = Remote(raw)
+    exts = s3fits.walk(remote.get, len(raw))
+    assert "COMP_IMAGE" in exts
+
+    cards = s3fits.parse_cards(exts["COMP_IMAGE"]["text"])
+    assert s3fits.is_compressed_image(cards) is True
+    assert s3fits.is_plain_image(cards) is False
+
+    # Lectura selectiva de una caja interna [20:50, 30:70]
+    remote_sec = Remote(raw)
+    sub = s3fits.read_compressed_section(remote_sec.get, exts["COMP_IMAGE"], 20, 50, 30, 70, cards)
+    assert sub.shape == (30, 40)
+    assert np.allclose(sub, data[20:50, 30:70])
+
+    # Lectura de filas completas sin especificar columnas (x0=None, x1=None)
+    sub_all_cols = s3fits.read_compressed_section(remote_sec.get, exts["COMP_IMAGE"], 10, 20)
+    assert sub_all_cols.shape == (10, nx)
+    assert np.allclose(sub_all_cols, data[10:20, :])
+
+    # Verificar que solo se leyeron teselas de forma selectiva
+    assert remote_sec.bytes < len(raw)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
