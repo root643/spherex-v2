@@ -1017,7 +1017,6 @@
       abortSpectrum();
       changeZoom(1);
     };
-    };
 
     new ResizeObserver(drawOverlay).observe(stage);
   }
