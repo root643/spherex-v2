@@ -17,7 +17,8 @@ from typing import Optional, Tuple
 import numpy as np
 import zarr
 
-ZARR_DIR = os.environ.get("SPHEREX_ZARR_DIR", os.path.join(tempfile.gettempdir(), "spherex_zarr"))
+_DEFAULT_ZARR_DIR = "/var/cache/spherex/zarr" if os.path.isdir("/var/cache/spherex") else os.path.join(tempfile.gettempdir(), "spherex_zarr")
+ZARR_DIR = os.environ.get("SPHEREX_ZARR_DIR", _DEFAULT_ZARR_DIR)
 
 # Deteccion de codec ZFP nativo o fallback Blosc-Zstd
 _HAS_ZFP = False

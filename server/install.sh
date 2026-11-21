@@ -66,7 +66,7 @@ say "Entorno Python en /opt/spherex-env"
 # ---------------------------------------------------------------- 3. codigo
 say "Copiando backend y frontend"
 rm -rf /opt/spherex-backend /var/www/spherex-frontend
-mkdir -p /opt/spherex-backend /var/www/spherex-frontend /var/cache/spherex/fits /var/cache/nginx/spherex
+mkdir -p /opt/spherex-backend /var/www/spherex-frontend /var/cache/spherex/fits /var/cache/spherex/zarr /var/cache/nginx/spherex
 # datos del foro (publicaciones, votos, GIF y espectros): fuera de lo que se borra en cada despliegue
 mkdir -p /var/lib/spherex/forum/media
 cp -r "$SRC/backend/." /opt/spherex-backend/
@@ -107,6 +107,7 @@ Wants=network-online.target
 User=${RUN_USER}
 WorkingDirectory=/opt/spherex-backend
 Environment=SPHEREX_FITS_DIR=/var/cache/spherex/fits
+Environment=SPHEREX_ZARR_DIR=/var/cache/spherex/zarr
 Environment=SPHEREX_REDIS_URL=redis://127.0.0.1:6379/0
 Environment=SPHEREX_AWS_CUTOUT=http://127.0.0.1:9600/cutout?token=${AWS_TOKEN}
 Environment=SPHEREX_FORUM_DIR=/var/lib/spherex/forum
