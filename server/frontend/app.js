@@ -1065,10 +1065,11 @@
   // ------------------------------------------------------------------ carga principal
   let lastLoadedCenter = { ra: null, dec: null };
   async function reload(opts = {}) {
-    if (state.viewEngine === "hips") {
+    if (state.viewEngine === "hips" && !opts.fromHips) {
       paintControls();
       syncUrl();
       initOrUpdateAladin();
+      triggerHipsSpherexSync();
       return;
     }
     const hasExisting = frames.length > 0;
@@ -1092,7 +1093,7 @@
       pause(true);
       frames.forEach((f) => { if (f && f.url) URL.revokeObjectURL(f.url); });
       frames = []; $("img").removeAttribute("src"); $("frameLabel").textContent = ""; $("frameMeta").textContent = "";
-      if (viewerLoader) viewerLoader.start("Querying SPHEREx archive…");
+      if (viewerLoader && state.viewEngine !== "hips") viewerLoader.start("Querying SPHEREx archive…");
     } else {
       let msg = "Querying SPHEREx archive…";
       if (isRecenterOnly) msg = "Centering on new coordinates…";
@@ -1100,7 +1101,7 @@
       else if (state.mode === "diff") msg = "Calculating epoch differences…";
       else if (state.mode === "coadd") msg = "Generating deep coaddition…";
       else if (state.band) msg = `Loading band ${state.band}…`;
-      if (viewerLoader) viewerLoader.start(msg);
+      if (viewerLoader && state.viewEngine !== "hips") viewerLoader.start(msg);
     }
 
     try {
@@ -1332,6 +1333,15 @@
     $("frameMeta").textContent = `${f.meta.n} exp · Exact FOV: ${fovExactSec}″ (${fovExactMin}′)` + (f.meta.wl ? ` · λ≈${(+f.meta.wl).toFixed(2)} µm` : "") + ` · ${f.meta.scale}″/px`;
     [...$("epochs").children].forEach((li) => li.classList.toggle("on", +li.dataset.epoch === f.epoch));
     drawOverlay();
+    if (state.viewEngine === "hips") {
+      const enabled = state.hipsBlinkEnabled !== false;
+      const op = enabled ? ((state.hipsOpacity || 90) / 100) : 0;
+      $("img").style.opacity = String(op);
+      $("overlay").style.opacity = enabled ? "1" : "0";
+      if ($("hipsHudStatus")) {
+        $("hipsHudStatus").innerHTML = `<span class="hips-dot live"></span> <b>SPHEREx Blinking</b> (${frames.length} epochs · D${detOf(state.band)})`;
+      }
+    }
   }
   function play() {
     clearInterval(timer);
@@ -1751,6 +1761,15 @@
     document.head.appendChild(s);
   }
 
+  let hipsS3SyncTimer = null;
+  function triggerHipsSpherexSync() {
+    if (state.viewEngine !== "hips") return;
+    if ($("hipsHudStatus")) {
+      $("hipsHudStatus").innerHTML = '<span class="hips-dot loading"></span> Streaming SPHEREx epochs from AWS S3…';
+    }
+    reload({ fromHips: true, recenterOnly: true });
+  }
+
   function initOrUpdateAladin() {
     ensureAladinScript(() => {
       const aladinDiv = $("aladinDiv");
@@ -1772,6 +1791,17 @@
             showFrame: false,
           });
 
+          const onHipsMotion = () => {
+            if (state.viewEngine !== "hips") return;
+            if ($("img")) $("img").style.opacity = "0";
+            if ($("overlay")) $("overlay").style.opacity = "0";
+            if ($("hipsHudStatus")) {
+              $("hipsHudStatus").innerHTML = '<span class="hips-dot"></span> Panning 60 FPS (AllWISE) · Settle to stream SPHEREx';
+            }
+            clearTimeout(hipsS3SyncTimer);
+            hipsS3SyncTimer = setTimeout(triggerHipsSpherexSync, 500);
+          };
+
           aladinInstance.on("positionChanged", (data) => {
             if (state.viewEngine !== "hips") return;
             state.ra = Number(data.ra.toFixed(5));
@@ -1780,6 +1810,7 @@
             if ($("dec")) $("dec").value = state.dec;
             if ($("cursor")) $("cursor").textContent = `${state.ra.toFixed(5)}°  ${state.dec >= 0 ? "+" : ""}${state.dec.toFixed(5)}°`;
             syncUrl();
+            onHipsMotion();
           });
 
           aladinInstance.on("zoomChanged", (fovDeg) => {
@@ -1789,6 +1820,7 @@
             if ($("fov")) $("fov").value = state.fov;
             if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
             syncUrl();
+            onHipsMotion();
           });
 
           aladinInstance.on("objectClicked", (obj) => {
@@ -1818,22 +1850,25 @@
     state.viewEngine = engine;
     const isHips = engine === "hips";
 
+    $("stage").classList.toggle("hips-mode", isHips);
     if ($("btnEngineBlink")) $("btnEngineBlink").classList.toggle("active", !isHips);
     if ($("btnEngineHips")) $("btnEngineHips").classList.toggle("active", isHips);
     if ($("stageHips")) $("stageHips").classList.toggle("active-hips", isHips);
     if ($("hipsPanel")) $("hipsPanel").style.display = isHips ? "block" : "none";
     if ($("aladinDiv")) $("aladinDiv").style.display = isHips ? "block" : "none";
-    if ($("btnSyncBlink")) $("btnSyncBlink").style.display = isHips ? "inline-flex" : "none";
+    if ($("hipsHud")) $("hipsHud").style.display = isHips ? "flex" : "none";
 
     const img = $("img");
     const overlay = $("overlay");
-    if (img) img.style.display = isHips ? "none" : "block";
-    if (overlay) overlay.style.display = isHips ? "none" : "block";
 
     if (isHips) {
-      pause();
+      if (img) img.style.display = "block";
+      if (overlay) overlay.style.display = "block";
       initOrUpdateAladin();
+      triggerHipsSpherexSync();
     } else {
+      if (img) { img.style.display = "block"; img.style.opacity = "1"; }
+      if (overlay) { overlay.style.display = "block"; overlay.style.opacity = "1"; }
       reload();
     }
   }
@@ -1841,11 +1876,28 @@
   function setupHipsEngine() {
     state.viewEngine = "blink";
     state.hipsSurvey = "CDS/P/allWISE/color";
+    state.hipsBlinkEnabled = true;
+    state.hipsOpacity = 90;
 
     if ($("btnEngineBlink")) $("btnEngineBlink").onclick = () => switchEngine("blink");
     if ($("btnEngineHips")) $("btnEngineHips").onclick = () => switchEngine("hips");
     if ($("stageHips")) $("stageHips").onclick = () => switchEngine(state.viewEngine === "hips" ? "blink" : "hips");
-    if ($("btnSyncBlink")) $("btnSyncBlink").onclick = () => { switchEngine("blink"); };
+    if ($("btnHipsToggleBlink")) {
+      $("btnHipsToggleBlink").onclick = () => {
+        state.hipsBlinkEnabled = !state.hipsBlinkEnabled;
+        $("btnHipsToggleBlink").classList.toggle("active", state.hipsBlinkEnabled);
+        if ($("img")) $("img").style.opacity = state.hipsBlinkEnabled ? String((state.hipsOpacity || 90) / 100) : "0";
+        if ($("overlay")) $("overlay").style.opacity = state.hipsBlinkEnabled ? "1" : "0";
+      };
+    }
+    if ($("hipsOpacity")) {
+      $("hipsOpacity").oninput = (e) => {
+        state.hipsOpacity = Number(e.target.value);
+        if (state.hipsBlinkEnabled && $("img")) {
+          $("img").style.opacity = String(state.hipsOpacity / 100);
+        }
+      };
+    }
     if ($("hipsSurvey")) {
       $("hipsSurvey").onchange = () => {
         state.hipsSurvey = $("hipsSurvey").value;

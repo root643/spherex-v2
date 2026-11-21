@@ -6,7 +6,7 @@
 <title>SPHEREx Blink · 102-Band Time-Series Viewer</title>
 <meta name="description" content="WiseView-style viewer for NASA SPHEREx images: multi-epoch blinking, difference, coaddition, and 102-channel spectra.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=23">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 <header class="top">
@@ -183,7 +183,16 @@
         </span>
       </div>
       <div id="aladinDiv" class="aladin-container" style="display: none;"></div>
-      <button id="btnSyncBlink" class="btn-sync-blink" type="button" style="display: none;" title="⚡ Lock coordinates and blink SPHEREx epochs in WiseView">⚡ Blink SPHEREx Field</button>
+      <div id="hipsHud" class="hips-hud" style="display: none;">
+        <span id="hipsHudStatus" class="hips-hud-status"><span class="hips-dot"></span> <b>HiPS Sky</b> · Drag to explore</span>
+        <div class="hips-hud-controls">
+          <button type="button" id="btnHipsToggleBlink" class="btn-hud active" title="Toggle SPHEREx multi-epoch blinking overlay">👁️ SPHEREx</button>
+          <label class="hud-slider-wrap" title="SPHEREx overlay opacity">
+            <span>Blend</span>
+            <input type="range" id="hipsOpacity" min="10" max="100" value="90" step="5">
+          </label>
+        </div>
+      </div>
       <img id="img" alt="SPHEREx frame" draggable="false">
       <canvas id="overlay"></canvas>
       <div class="compass" aria-hidden="true"><span>N</span><i></i><span class="e">E</span></div>
@@ -274,6 +283,6 @@
   </form>
 </dialog>
 <script src="chart.js?v=5"></script>
-<script src="app.js?v=26"></script>
+<script src="app.js?v=27"></script>
 </body>
 </html>

@@ -334,13 +334,23 @@ textarea { font: inherit; color: var(--text); background: #0e1216; border: 1px s
 .fold-note { margin-left: auto; font-size: 11px; color: var(--muted); }
 .sed .fold { margin-bottom: 0; }
 
-/* ======================================================================= HiPS & Aladin Lite */
-.aladin-container { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 5; background: #000; border-radius: 6px; overflow: hidden; }
+/* ======================================================================= HiPS & Aladin Lite Hybrid */
+.stage.hips-mode #aladinDiv { display: block !important; z-index: 4; }
+.stage.hips-mode img { z-index: 8; pointer-events: none; transition: opacity .25s ease; }
+.stage.hips-mode canvas#overlay { z-index: 9; pointer-events: none; transition: opacity .25s ease; }
+.aladin-container { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; background: #000; border-radius: 6px; overflow: hidden; }
 .btn-layer.active-hips { background: rgba(94, 200, 242, .25); color: #5ec8f2; border-color: #5ec8f2; box-shadow: 0 0 10px rgba(94, 200, 242, .5); }
-.btn-sync-blink { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 25; background: linear-gradient(135deg, #0ea5e9, #38bdf8); color: #03141c; font: 12px/1 var(--mono); font-weight: 700; padding: 10px 18px; border-radius: 20px; border: none; cursor: pointer; box-shadow: 0 4px 16px rgba(14, 165, 233, .55); transition: all .18s ease; display: inline-flex; align-items: center; gap: 6px; }
-.btn-sync-blink:hover { transform: translateX(-50%) scale(1.05); box-shadow: 0 6px 20px rgba(56, 189, 248, .75); }
-.btn-sync-blink:active { transform: translateX(-50%) scale(.96); }
 .hips-panel { background: #0e1216; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
 .hips-status { font-size: 11px; color: var(--ok); display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.hips-hud { position: absolute; bottom: 12px; left: 12px; right: 12px; z-index: 30; display: flex; justify-content: space-between; align-items: center; padding: 6px 14px; background: rgba(15, 20, 26, .88); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: 20px; font-size: 11px; color: var(--fg); pointer-events: auto; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+.hips-hud-status { display: flex; align-items: center; gap: 8px; font: 11.5px/1 var(--mono); color: var(--fg); }
+.hips-hud-controls { display: flex; align-items: center; gap: 10px; }
+.btn-hud { background: rgba(255, 255, 255, .08); border: 1px solid var(--line); color: var(--fg); padding: 4px 10px; border-radius: 12px; font: 11px var(--mono); font-weight: 600; cursor: pointer; transition: all .15s ease; }
+.btn-hud:hover { background: rgba(255, 255, 255, .15); }
+.btn-hud.active { background: rgba(14, 165, 233, .25); border-color: #0ea5e9; color: #38bdf8; box-shadow: 0 0 8px rgba(14, 165, 233, .4); }
+.hud-slider-wrap { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--muted); }
+.hud-slider-wrap input[type="range"] { width: 64px; accent-color: #0ea5e9; }
 .hips-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px rgba(127, 209, 185, .8); display: inline-block; animation: pulse-green 1.8s infinite ease-in-out; }
+.hips-dot.live { background: #10b981; box-shadow: 0 0 6px #10b981; }
+.hips-dot.loading { background: #f59e0b; box-shadow: 0 0 6px #f59e0b; animation: pulse-green 0.7s infinite alternate; }
 @keyframes pulse-green { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.85); } }
