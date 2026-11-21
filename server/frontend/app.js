@@ -538,7 +538,18 @@
         const f = parseFloat($("fovExact").value);
         if (!isNaN(f) && f >= 10 && f <= 3600) state.fov = Math.round(f * 100) / 100;
       }
-      state.ra = ra; state.dec = dec; marker = null; reload();
+      state.ra = ra; state.dec = dec; marker = null;
+      if (state.viewEngine === "hips") {
+        if (aladinInstance) {
+          try {
+            aladinInstance.gotoPosition(state.ra, state.dec);
+            aladinInstance.setFoV((state.fov || 300) / 3600.0);
+          } catch {}
+        }
+        syncUrl();
+        return;
+      }
+      reload();
     };
     $("share").onclick = async () => {
       try { await navigator.clipboard.writeText(location.href); $("share").textContent = "Link copied"; }
@@ -704,6 +715,7 @@
     let mouseMoved = false;
 
     stage.addEventListener("mousedown", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       if (ev.target.closest(".stage-zoom, .stage-overlays, .buffer-wrap")) return;
       if (ev.button !== 0) return;
       if (performance.now() < suppressClickUntil) return;
@@ -718,6 +730,7 @@
     });
 
     stage.addEventListener("mousemove", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       const s = skyAt(ev);
       $("cursor").textContent = s ? `RA ${s.ra.toFixed(5)}°  Dec ${s.dec >= 0 ? "+" : ""}${s.dec.toFixed(5)}°` : "—";
       const tooltipEl = $("tooltip");
@@ -747,6 +760,10 @@
     const finishMouseDrag = () => {
       const tip = $("tooltip");
       if (tip) tip.hidden = true;
+      if (state.viewEngine === "hips") {
+        isMouseDown = false;
+        return;
+      }
       if (!isMouseDown) return;
       isMouseDown = false;
       stage.style.cursor = "crosshair";
@@ -770,6 +787,7 @@
 
     // Pantallas táctiles (móvil)
     stage.addEventListener("touchstart", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       if (ev.target.closest(".stage-zoom, .stage-overlays, .buffer-wrap")) return;
       const img = $("img");
       if (img) img.classList.remove("panning");
@@ -800,6 +818,7 @@
     }, { passive: false });
 
     stage.addEventListener("touchmove", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       if (ev.target.closest(".stage-zoom, .stage-overlays, .buffer-wrap")) return;
 
       if (isPinching && ev.touches.length >= 2) {
@@ -838,6 +857,7 @@
     }, { passive: false });
 
     stage.addEventListener("touchend", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       if (ev.target.closest(".stage-zoom, .stage-overlays, .buffer-wrap")) return;
 
       if (isPinching) {
@@ -914,6 +934,7 @@
 
     let tooltipTimer = null;
     stage.addEventListener("click", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       if (ev.target.closest(".stage-zoom, .stage-overlays, .buffer-wrap")) return;
       if (performance.now() < suppressClickUntil) return;
       const nearCat = findNearCatalogSource(ev.clientX, ev.clientY, 16);
@@ -936,6 +957,7 @@
     });
 
     stage.addEventListener("dblclick", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       if (ev.target.closest(".stage-zoom, .stage-overlays, .buffer-wrap")) return;
       abortSpectrum();
       suppressClickUntil = performance.now() + 350;
@@ -957,6 +979,7 @@
     });
 
     stage.addEventListener("wheel", (ev) => {
+      if (state.viewEngine === "hips" || ev.target.closest("#aladinDiv, .aladin-container")) return;
       ev.preventDefault();
       abortSpectrum();
       changeZoom(Math.sign(ev.deltaY));
@@ -964,13 +987,36 @@
 
     $("zoomIn").onclick = (e) => {
       e.stopPropagation();
+      if (state.viewEngine === "hips") {
+        state.fov = Math.max(30, Math.round(state.fov / 1.3));
+        if ($("fovExact")) $("fovExact").value = state.fov;
+        if ($("fov")) $("fov").value = state.fov;
+        if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
+        if (aladinInstance) {
+          try { aladinInstance.setFoV(state.fov / 3600.0); } catch {}
+        }
+        syncUrl();
+        return;
+      }
       abortSpectrum();
       changeZoom(-1);
     };
     $("zoomOut").onclick = (e) => {
       e.stopPropagation();
+      if (state.viewEngine === "hips") {
+        state.fov = Math.min(1800, Math.round(state.fov * 1.3));
+        if ($("fovExact")) $("fovExact").value = state.fov;
+        if ($("fov")) $("fov").value = state.fov;
+        if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
+        if (aladinInstance) {
+          try { aladinInstance.setFoV(state.fov / 3600.0); } catch {}
+        }
+        syncUrl();
+        return;
+      }
       abortSpectrum();
       changeZoom(1);
+    };
     };
 
     new ResizeObserver(drawOverlay).observe(stage);
@@ -1020,6 +1066,12 @@
   // ------------------------------------------------------------------ carga principal
   let lastLoadedCenter = { ra: null, dec: null };
   async function reload(opts = {}) {
+    if (state.viewEngine === "hips") {
+      paintControls();
+      syncUrl();
+      initOrUpdateAladin();
+      return;
+    }
     const hasExisting = frames.length > 0;
     const isZoomOnly = Boolean(opts && opts.zoomOnly && hasExisting);
     const isRecenterOnly = Boolean(opts && opts.recenterOnly && hasExisting);
@@ -1731,6 +1783,8 @@
         aladinInstance.gotoPosition(state.ra, state.dec);
         aladinInstance.setFoV((state.fov || 300) / 3600.0);
         if (state.hipsSurvey) aladinInstance.setImageSurvey(state.hipsSurvey);
+        if (typeof aladinInstance.recalculateView === "function") aladinInstance.recalculateView();
+        window.dispatchEvent(new Event("resize"));
       } catch (e) {}
     }
   }

@@ -229,7 +229,8 @@ def is_plain_image(cards: dict) -> bool:
 
 def is_compressed_image(cards: dict) -> bool:
     """True si el HDU es una imagen FITS comprimida por teselas (fpack / CompImageHDU)."""
-    return bool(cards.get("ZIMAGE") is True or (str(cards.get("XTENSION", "")).strip() == "BINTABLE" and cards.get("ZIMAGE") is True))
+    zimg = cards.get("ZIMAGE")
+    return bool(zimg is True or zimg in ("T", "t", "True", "true", 1))
 
 
 class CompImageRangeStream(io.RawIOBase):
@@ -268,7 +269,7 @@ class CompImageRangeStream(io.RawIOBase):
             self._pos = self._total + offset
         else:
             raise ValueError(f"whence invalido: {whence}")
-        self._pos = max(0, min(self._pos, self._total))
+        self._pos = max(0, self._pos)
         return self._pos
 
     def tell(self) -> int:

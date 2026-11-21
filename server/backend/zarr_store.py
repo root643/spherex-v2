@@ -63,18 +63,25 @@ def compress_float32(arr: np.ndarray, method: str = "zfp", tolerance: float = 1e
     return arr.tobytes(), "raw"
 
 
-def decompress_float32(data: bytes, shape: tuple[int, ...], method: str, dtype: np.dtype = np.float32) -> np.ndarray:
+def decompress_float32(data: bytes, shape: tuple[int, ...], method: str = "blosc-zstd", dtype: np.dtype = np.float32) -> np.ndarray:
     """Descomprime un buffer de bytes a un array NumPy segun el codec empleado."""
     m = method.lower().strip()
     if m == "zfp" and _HAS_ZFP:
-        return zfpy.decompress_numpy(data)
-    if m == "blosc-zstd" and _HAS_NUMCODECS:
-        codec = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
-        decoded = codec.decode(data)
-        return np.frombuffer(decoded, dtype=dtype).reshape(shape)
-    if m == "raw":
+        try:
+            return zfpy.decompress_numpy(data)
+        except Exception:
+            pass
+    if m in ("blosc", "blosc-zstd", "zstd") or (m == "zfp" and not _HAS_ZFP):
+        if _HAS_NUMCODECS:
+            try:
+                codec = Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE)
+                decoded = codec.decode(data)
+                return np.frombuffer(decoded, dtype=dtype).reshape(shape)
+            except Exception:
+                pass
+    if m == "raw" or len(data) == int(np.prod(shape)) * np.dtype(dtype).itemsize:
         return np.frombuffer(data, dtype=dtype).reshape(shape)
-    return np.frombuffer(data, dtype=dtype).reshape(shape)
+    raise ValueError(f"No se pudo descomprimir el buffer con metodo '{method}' (tamano {len(data)} bytes para shape {shape})")
 
 
 def cube_id(ra: float, dec: float, fov: float) -> str:
@@ -109,8 +116,12 @@ def save_zarr_cube(path: str, cube: np.ndarray, ra: float, dec: float, fov: floa
             pass
 
     root = zarr.open_group(path, mode="w")
-    arr = root.create_array(name="data", shape=(n_ch, ny, nx),
-                            chunks=(chunk_ch, chunk_y, chunk_x), dtype="float32")
+    if hasattr(root, "create_array"):
+        arr = root.create_array(name="data", shape=(n_ch, ny, nx),
+                                chunks=(chunk_ch, chunk_y, chunk_x), dtype="float32")
+    else:
+        arr = root.create_dataset(name="data", shape=(n_ch, ny, nx),
+                                  chunks=(chunk_ch, chunk_y, chunk_x), dtype="float32")
     arr[:] = cube
 
     # Metadatos del hipercubo

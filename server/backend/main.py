@@ -440,7 +440,8 @@ def zarr_cube_spectrum(ra: float = RA, dec: float = DEC, fov: float = FOV,
 
 
 @app.post("/api/v1/cube/zarr/build")
-def zarr_cube_build(ra: float = RA, dec: float = DEC, fov: float = FOV):
+def zarr_cube_build(ra: float = RA, dec: float = DEC, fov: float = FOV,
+                    res: str = Query("high", pattern="^(low|high)$")):
     """Genera y almacena el hipercubo espectral 3D en Zarr particionado en bloques (17, 64, 64)."""
     ra, dec = _r(ra, dec)
     fov = round(float(fov), 2)
@@ -450,7 +451,10 @@ def zarr_cube_build(ra: float = RA, dec: float = DEC, fov: float = FOV):
         return JSONResponse({"status": "ready", "path": path, "cube_id": cid})
 
     exps = get_exposures(ra, dec)
-    n, scale = upstream.grid_for(fov)
+    if res == "low":
+        n, scale = upstream.grid_for(fov, min_scale=upstream.NATIVE_SCALE)
+    else:
+        n, scale = upstream.grid_for(fov)
     cube_data = np.zeros((102, n, n), dtype=np.float32)
     wavelengths = []
     wcs_hdr = upstream.target_wcs(ra, dec, n, scale).to_header()
@@ -460,8 +464,12 @@ def zarr_cube_build(ra: float = RA, dec: float = DEC, fov: float = FOV):
         det, lmin, lmax = imaging.channel_range(ch)
         wavelengths.append(round((lmin + lmax) / 2.0, 4))
         try:
-            arr, _ = build_array(ra, dec, fov, det, lmin, lmax, exps, "median", cap=8, res="low")
-            cube_data[ch - 1] = arr
+            arr, _ = build_array(ra, dec, fov, det, lmin, lmax, exps, "median", cap=8, res=res)
+            if arr.shape == (n, n):
+                cube_data[ch - 1] = arr
+            else:
+                min_y, min_x = min(n, arr.shape[0]), min(n, arr.shape[1])
+                cube_data[ch - 1, :min_y, :min_x] = arr[:min_y, :min_x]
         except Exception:
             pass
 

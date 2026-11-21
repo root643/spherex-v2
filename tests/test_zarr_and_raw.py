@@ -25,12 +25,18 @@ def test_compress_and_decompress_float32():
     assert codec_b in ("blosc-zstd", "raw")
     restored_b = zarr_store.decompress_float32(blosc_bytes, (64, 64), codec_b)
     assert np.allclose(data, restored_b, atol=1e-6)
+    # Comprobar que descompresion pasando el nombre del metodo "blosc" tambien funciona
+    restored_b2 = zarr_store.decompress_float32(blosc_bytes, (64, 64), method="blosc")
+    assert np.allclose(data, restored_b2, atol=1e-6)
 
-    # 3. Compresion ZFP
+    # 3. Compresion ZFP (o fallback a blosc-zstd)
     zfp_bytes, codec_z = zarr_store.compress_float32(data, method="zfp", tolerance=1e-4)
     assert codec_z in ("zfp", "blosc-zstd", "raw")
     restored_z = zarr_store.decompress_float32(zfp_bytes, (64, 64), codec_z)
     assert np.allclose(data, restored_z, atol=1e-3)
+    # Comprobar que descompresion pasando el nombre del metodo "zfp" tambien funciona sin fallar
+    restored_z2 = zarr_store.decompress_float32(zfp_bytes, (64, 64), method="zfp")
+    assert np.allclose(data, restored_z2, atol=1e-3)
 
 
 def test_zarr_cube_operations():
@@ -114,7 +120,52 @@ def test_api_cutout_raw(monkeypatch):
     assert r_zfp.headers["X-Spherex-Codec"] in ("zfp", "blosc-zstd", "raw")
 
     # 4. Format fits
+    import io
+    from astropy.io import fits
     r_fits = client.get("/api/v1/cutout/raw?ra=269.45&dec=4.69&fov=120&band=D4&format=fits")
     assert r_fits.status_code == 200
     assert r_fits.headers["Content-Type"] == "application/fits"
     assert len(r_fits.content) > 2880
+    with fits.open(io.BytesIO(r_fits.content)) as hdul:
+        assert len(hdul) == 1
+        assert hdul[0].data.shape == (64, 64)
+        assert np.allclose(hdul[0].data, fake_arr)
+        assert "CRVAL1" in hdul[0].header
+
+
+def test_api_zarr_cube_build_and_spectrum(monkeypatch):
+    """Comprueba la construccion del cubo 3D y la posterior extraccion de espectro sin ceros fantasma."""
+    client = TestClient(app)
+
+    with tempfile.TemporaryDirectory() as td:
+        monkeypatch.setattr("zarr_store.ZARR_DIR", td)
+        monkeypatch.setattr("main.get_exposures", lambda ra, dec: [{"epoch": 0, "detector": 1, "uri": "test.fits"}])
+
+        def mock_build_array(ra, dec, fov, det, lmin, lmax, exps, method, cap, res):
+            # Devolver array coherente con la resolucion solicitada
+            import upstream
+            if res == "low":
+                n, _ = upstream.grid_for(fov, min_scale=upstream.NATIVE_SCALE)
+            else:
+                n, _ = upstream.grid_for(fov)
+            arr = np.full((n, n), float(det * 10.0), dtype=np.float32)
+            meta = {"n": 1, "size": n, "scale": 3.0, "date": "2025-05-01", "mjd": 60800.0}
+            return arr, meta
+
+        monkeypatch.setattr("main.build_array", mock_build_array)
+
+        # Construir cubo Zarr en baja resolucion
+        r_build = client.post("/api/v1/cube/zarr/build?ra=269.45&dec=4.69&fov=120&res=low")
+        assert r_build.status_code == 200
+        bdata = r_build.json()
+        assert bdata["status"] == "created"
+        assert bdata["shape"][0] == 102
+
+        # Consultar espectro punto a punto
+        r_spec = client.get(f"/api/v1/cube/zarr/spectrum?ra=269.45&dec=4.69&fov=120&x=5&y=5")
+        assert r_spec.status_code == 200
+        sdata = r_spec.json()
+        assert sdata["n_channels"] == 102
+        # Verificar que los canales tienen flujos reales y no ceros por errores de broadcast
+        fluxes = [p["flux"] for p in sdata["spectrum"]]
+        assert any(f is not None and f > 0 for f in fluxes)
