@@ -6,7 +6,7 @@
 <title>SPHEREx Blink · 102-Band Time-Series Viewer</title>
 <meta name="description" content="WiseView-style viewer for NASA SPHEREx images: multi-epoch blinking, difference, coaddition, and 102-channel spectra.">
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 <header class="top">
@@ -187,6 +187,14 @@
         <span id="hipsHudStatus" class="hips-hud-status"><span class="hips-dot"></span> <b>HiPS Sky</b> · Drag to explore</span>
         <div class="hips-hud-controls">
           <button type="button" id="btnHipsToggleBlink" class="btn-hud active" title="Toggle SPHEREx multi-epoch blinking overlay">👁️ SPHEREx</button>
+          <select id="hipsColormap" class="hud-select" title="Native FITS WebGL Colormap">
+            <option value="native">Native Greyscale</option>
+            <option value="viridis">Viridis (Astrophysics)</option>
+            <option value="plasma">Plasma</option>
+            <option value="heat">Heat / Thermal</option>
+            <option value="magma">Magma</option>
+            <option value="rainbow">Rainbow</option>
+          </select>
           <label class="hud-slider-wrap" title="SPHEREx overlay opacity">
             <span>Blend</span>
             <input type="range" id="hipsOpacity" min="10" max="100" value="90" step="5">
@@ -283,6 +291,6 @@
   </form>
 </dialog>
 <script src="chart.js?v=5"></script>
-<script src="app.js?v=27"></script>
+<script src="app.js?v=29"></script>
 </body>
 </html>

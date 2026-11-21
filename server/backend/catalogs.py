@@ -13,8 +13,6 @@ import requests
 
 VIZIER_MIRRORS = [
     "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv",
-    "https://cdsarc.cds.unistra.fr/viz-bin/asu-tsv",
-    "https://vizier.nao.ac.jp/viz-bin/asu-tsv",
 ]
 
 _session = requests.Session()

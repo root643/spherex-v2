@@ -19,6 +19,7 @@ from typing import Optional
 import numpy as np
 from astropy.io import fits
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 import catalogs
@@ -38,6 +39,13 @@ TTL_ARR = 14 * 86400
 
 app = FastAPI(title="SPHEREx WiseView Translation Server", version=VERSION,
               docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 cache = Cache()
 # Pool dedicado exclusivamente a peticiones prioritarias del usuario (foreground)
 pool = ThreadPoolExecutor(max_workers=int(os.environ.get("SPHEREX_FETCH_THREADS", "16")),
@@ -251,8 +259,13 @@ def catalog_gaia(ra: float = RA, dec: float = DEC,
     key = f"cat:gaia:{ra:.5f}:{dec:.5f}:{radius:.1f}:{limit}"
     raw = cache.get(key)
     if raw:
-        return Response(raw, media_type="application/json",
-                        headers={"Cache-Control": "public, max-age=86400", "X-Catalog-Source": "cache"})
+        try:
+            cached_data = json.loads(raw)
+            if cached_data.get("count", 0) > 0:
+                return Response(raw, media_type="application/json",
+                                headers={"Cache-Control": "public, max-age=86400", "X-Catalog-Source": "cache"})
+        except Exception:
+            pass
     try:
         sources = catalogs.query_gaia(ra, dec, radius_arcsec=radius, limit=limit)
     except Exception as e:
@@ -278,8 +291,13 @@ def catalog_wise(ra: float = RA, dec: float = DEC,
     key = f"cat:wise:{ra:.5f}:{dec:.5f}:{radius:.1f}:{limit}"
     raw = cache.get(key)
     if raw:
-        return Response(raw, media_type="application/json",
-                        headers={"Cache-Control": "public, max-age=86400", "X-Catalog-Source": "cache"})
+        try:
+            cached_data = json.loads(raw)
+            if cached_data.get("count", 0) > 0:
+                return Response(raw, media_type="application/json",
+                                headers={"Cache-Control": "public, max-age=86400", "X-Catalog-Source": "cache"})
+        except Exception:
+            pass
     try:
         sources = catalogs.query_wise(ra, dec, radius_arcsec=radius, limit=limit)
     except Exception as e:
@@ -376,7 +394,10 @@ def cutout_raw(ra: float = RA, dec: float = DEC, fov: float = FOV,
         body = bio.getvalue()
         headers = {
             "Content-Type": "application/fits",
-            "Content-Disposition": f'attachment; filename="spherex_raw_{ra:.4f}_{dec:.4f}_{band}.fits"',
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Expose-Headers": "X-Spherex-Format, X-Spherex-Shape, X-Spherex-Scale, Content-Disposition, Cache-Control",
+            "Cache-Control": "public, max-age=86400",
+            "Content-Disposition": f'inline; filename="spherex_raw_{ra:.4f}_{dec:.4f}_{band}_e{epoch}.fits"',
             "X-Spherex-Format": "fits",
             "X-Spherex-Shape": f"{ny},{nx}",
             "X-Spherex-Scale": str(scale),
