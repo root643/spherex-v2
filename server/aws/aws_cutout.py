@@ -276,20 +276,25 @@ def s3_cutout(uri: str, ra: float, dec: float, size_deg: float, need_var: bool =
         def get(a: int, b: int) -> bytes:
             return _s3_range(url, a, b)
 
+        flags_packed = "FLAGS" in cards and not s3fits.is_plain_image(cards["FLAGS"])
+
         def _fetch_part(k: str):
             c = cards[k]
+            if k == "FLAGS" and flags_packed:
+                # FLAGS viene comprimido con Rice (~50-100 KB total).
+                # Usar cache local en SSD: se descarga de una sola vez y se reusa en 0 ms.
+                fb = _hdu_file_bytes(url, lay, "FLAGS", "flags")
+                if fb is not None:
+                    with fits.open(io.BytesIO(fb), memmap=False) as fhdul:
+                        try:
+                            fl = fhdul[1].section[y0:y1, x0:x1]
+                        except Exception:
+                            fl = fhdul[1].data[y0:y1, x0:x1]
+                        return np.array(fl)
             if s3fits.is_plain_image(c):
                 return s3fits.rows(get, exts[k], y0, y1, c)[:, x0:x1]
             elif s3fits.is_compressed_image(c):
-                try:
-                    return s3fits.read_compressed_section(get, exts[k], y0, y1, x0, x1, c)
-                except Exception:
-                    if k == "FLAGS":
-                        fb = _hdu_file_bytes(url, lay, "FLAGS", "flags")
-                        if fb is not None:
-                            with fits.open(io.BytesIO(fb), memmap=False) as fhdul:
-                                return np.array(fhdul[1].section[y0:y1, x0:x1])
-                    raise
+                return s3fits.read_compressed_section(get, exts[k], y0, y1, x0, x1, c)
             raise S3Unavailable(f"Formato no soportado para HDU {k}")
 
         want = ["IMAGE", "ZODI"] + (["FLAGS"] if "FLAGS" in cards else []) + (["VARIANCE"] if need_var and "VARIANCE" in cards else [])

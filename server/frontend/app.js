@@ -1723,69 +1723,95 @@
   // ------------------------------------------------------------------ tooltips universales en hover
   // ------------------------------------------------------------------ HiPS & Aladin Lite engine
   let aladinInstance = null;
-  function initOrUpdateAladin() {
-    if (typeof A === "undefined") {
-      setMsg("HiPS all-sky navigation requires an active internet connection to load CDS Aladin Lite.");
+  let aladinLoading = false;
+
+  function ensureAladinScript(onSuccess) {
+    if (typeof A !== "undefined" && A.aladin) {
+      if (onSuccess) onSuccess();
       return;
     }
-    const aladinDiv = $("aladinDiv");
-    if (!aladinDiv) return;
-
-    if (!aladinInstance) {
-      try {
-        aladinInstance = A.aladin("#aladinDiv", {
-          survey: state.hipsSurvey || "CDS/P/allWISE/color",
-          fov: (state.fov || 300) / 3600.0,
-          target: `${state.ra} ${state.dec}`,
-          cooFrame: "J2000",
-          showReticle: state.cross,
-          showZoomControl: false,
-          showFullscreenControl: false,
-          showLayersControl: false,
-          showGotoControl: false,
-          showShareControl: false,
-          showFrame: false,
-        });
-
-        aladinInstance.on("positionChanged", (data) => {
-          if (state.viewEngine !== "hips") return;
-          state.ra = Number(data.ra.toFixed(5));
-          state.dec = Number(data.dec.toFixed(5));
-          if ($("ra")) $("ra").value = state.ra;
-          if ($("dec")) $("dec").value = state.dec;
-          if ($("cursor")) $("cursor").textContent = `${state.ra.toFixed(5)}°  ${state.dec >= 0 ? "+" : ""}${state.dec.toFixed(5)}°`;
-          syncUrl();
-        });
-
-        aladinInstance.on("zoomChanged", (fovDeg) => {
-          if (state.viewEngine !== "hips") return;
-          state.fov = Math.max(30, Math.min(1800, Math.round(fovDeg * 3600)));
-          if ($("fovExact")) $("fovExact").value = state.fov;
-          if ($("fov")) $("fov").value = state.fov;
-          if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
-          syncUrl();
-        });
-
-        aladinInstance.on("objectClicked", (obj) => {
-          if (obj && obj.ra != null && obj.dec != null) {
-            state.ra = Number(obj.ra.toFixed(5));
-            state.dec = Number(obj.dec.toFixed(5));
-            marker = { ra: state.ra, dec: state.dec };
-            loadSpectrum(state.ra, state.dec);
-          }
-        });
-      } catch (err) {
-        console.warn("Error initializing Aladin Lite:", err);
-      }
-    } else {
-      try {
-        aladinInstance.gotoPosition(state.ra, state.dec);
-        aladinInstance.setFoV((state.fov || 300) / 3600.0);
-        if (state.hipsSurvey) aladinInstance.setImageSurvey(state.hipsSurvey);
-        if (typeof aladinInstance.recalculateView === "function") aladinInstance.recalculateView();
-        window.dispatchEvent(new Event("resize"));
-      } catch (e) {}
+    if (aladinLoading) {
+      setTimeout(() => ensureAladinScript(onSuccess), 100);
+      return;
     }
+    aladinLoading = true;
+    setMsg("Loading HiPS celestial engine…");
+    const s = document.createElement("script");
+    s.src = "https://aladin.cds.unistra.fr/AladinLite/api/v3/latest/aladin.js";
+    s.charset = "utf-8";
+    s.onload = () => {
+      aladinLoading = false;
+      setMsg("");
+      if (onSuccess) onSuccess();
+    };
+    s.onerror = () => {
+      aladinLoading = false;
+      setMsg("Could not load HiPS engine. Check network connection.", true);
+    };
+    document.head.appendChild(s);
+  }
+
+  function initOrUpdateAladin() {
+    ensureAladinScript(() => {
+      const aladinDiv = $("aladinDiv");
+      if (!aladinDiv) return;
+
+      if (!aladinInstance) {
+        try {
+          aladinInstance = A.aladin("#aladinDiv", {
+            survey: state.hipsSurvey || "CDS/P/allWISE/color",
+            fov: (state.fov || 300) / 3600.0,
+            target: `${state.ra} ${state.dec}`,
+            cooFrame: "J2000",
+            showReticle: state.cross,
+            showZoomControl: false,
+            showFullscreenControl: false,
+            showLayersControl: false,
+            showGotoControl: false,
+            showShareControl: false,
+            showFrame: false,
+          });
+
+          aladinInstance.on("positionChanged", (data) => {
+            if (state.viewEngine !== "hips") return;
+            state.ra = Number(data.ra.toFixed(5));
+            state.dec = Number(data.dec.toFixed(5));
+            if ($("ra")) $("ra").value = state.ra;
+            if ($("dec")) $("dec").value = state.dec;
+            if ($("cursor")) $("cursor").textContent = `${state.ra.toFixed(5)}°  ${state.dec >= 0 ? "+" : ""}${state.dec.toFixed(5)}°`;
+            syncUrl();
+          });
+
+          aladinInstance.on("zoomChanged", (fovDeg) => {
+            if (state.viewEngine !== "hips") return;
+            state.fov = Math.max(30, Math.min(1800, Math.round(fovDeg * 3600)));
+            if ($("fovExact")) $("fovExact").value = state.fov;
+            if ($("fov")) $("fov").value = state.fov;
+            if ($("fovOut")) $("fovOut").textContent = `${state.fov}″ (${(state.fov / 60).toFixed(2)}′)`;
+            syncUrl();
+          });
+
+          aladinInstance.on("objectClicked", (obj) => {
+            if (obj && obj.ra != null && obj.dec != null) {
+              state.ra = Number(obj.ra.toFixed(5));
+              state.dec = Number(obj.dec.toFixed(5));
+              marker = { ra: state.ra, dec: state.dec };
+              loadSpectrum(state.ra, state.dec);
+            }
+          });
+        } catch (err) {
+          console.warn("Error initializing Aladin Lite:", err);
+        }
+      } else {
+        try {
+          aladinInstance.gotoPosition(state.ra, state.dec);
+          aladinInstance.setFoV((state.fov || 300) / 3600.0);
+          if (state.hipsSurvey) aladinInstance.setImageSurvey(state.hipsSurvey);
+          if (typeof aladinInstance.recalculateView === "function") aladinInstance.recalculateView();
+          window.dispatchEvent(new Event("resize"));
+        } catch (e) {}
+      }
+    });
   }
 
   function switchEngine(engine) {
